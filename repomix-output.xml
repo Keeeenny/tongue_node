@@ -1,0 +1,984 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+src/
+  controllers/
+    userController.ts
+  database/
+    connection.ts
+  middleware/
+    errorHandler.ts
+    validationUser.ts
+  repositories/
+    baseRepository.ts
+    userRepository.ts
+  responses/
+    responseHandler.ts
+  test/
+    unitTest.test.ts
+    userController.test.ts
+  utils/
+    types.ts
+    validators.ts
+  app.ts
+  appTest.ts
+  routes.ts
+.gitignore
+mySQL.sql
+package.json
+tsconfig.json
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="src/controllers/userController.ts">
+import { Request, Response } from "express";
+import { userRepository } from "../repositories/userRepository";
+import { User, UserField, Id } from "../utils/types";
+import { sendResponse } from "../responses/responseHandler";
+import { toNumber, isString } from "../utils/validators";
+
+export const getUsers = async (
+  req: Request,
+  res: Response,
+): Promise<Response | void> => {
+  const users = await userRepository.getAll();
+
+  return sendResponse(res, 200, "Users retrieved successfully", users);
+};
+
+export const postUser = async (
+  req: Request,
+  res: Response,
+): Promise<Response | void> => {
+  console.log("postController called");
+  const { nickname, age, city } = req.body;
+
+  await isNicknameFree(nickname);
+
+  const userId = await userRepository.post(nickname, age, city);
+
+  if (!userId) {
+    const err: any = new Error("Failed to create the user");
+    err.statusCode = 500;
+    throw err;
+  }
+
+  sendResponse(res, 201, "User created successfully");
+  return;
+};
+
+export const patchUser = async (
+  req: Request,
+  res: Response,
+): Promise<Response | void> => {
+  console.log("patchUser called");
+  const bodyData = req.body;
+  const id: Id = toNumber(req.params.id);
+  const updates = [];
+  const values = [];
+
+  await doUserExists(id);
+
+  for (const key in bodyData) {
+    updates.push(`${key} = ?`);
+    let value = bodyData[key];
+
+    if (key == "nickname" || key == "city") {
+      value = value.trim();
+    }
+    values.push(value);
+  }
+
+  const userId = await userRepository.patch(id, updates, values);
+
+  if (!userId) {
+    const err: any = new Error("Failed to update the user");
+    err.statusCode = 500;
+    throw err;
+  }
+
+  sendResponse(res, 200, "User updated successfully");
+  return;
+};
+
+export const deleteUser = async (
+  req: Request,
+  res: Response,
+): Promise<Response | void> => {
+  console.log("deleteUser called");
+  const id: Id = toNumber(req.params.id);
+
+  await doUserExists(id);
+
+  const isDeleted = await userRepository.delete(id);
+
+  if (!isDeleted) {
+    const err: any = new Error("Failed to delete the user");
+    err.statusCode = 500;
+    throw err;
+  }
+
+  sendResponse(res, 200, "User deleted successfully");
+  return;
+};
+
+async function isNicknameFree(nickname: string): Promise<void> {
+  console.log("name check")
+  const nameToCheck = await userRepository.findByField(
+    UserField.NICKNAME,
+    nickname,
+  );
+  if (nameToCheck) {
+    const err: any = new Error(`Nickname already taken`);
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+async function doUserExists(id: number): Promise<void> {
+  const user = await userRepository.findById(id);
+  if (!user) {
+    const err: any = new Error(`User does not exists.`);
+    err.statusCode = 404;
+    throw err;
+  }
+}
+</file>
+
+<file path="src/database/connection.ts">
+import mysql, { Pool } from "mysql2/promise";
+import * as dotenv from "dotenv";
+
+dotenv.config();
+
+const pool: Pool = mysql.createPool({
+  host: process.env.DB_HOST as string,
+  user: process.env.DB_USER as string,
+  password: process.env.DB_PASSWORD as string,
+  database: process.env.DB_NAME as string,
+  port: Number(process.env.DB_PORT),
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+});
+
+const connection = async () => {
+  try {
+    const connection = await pool.getConnection();
+    console.log("✅ Connected to the MySQL database via Pool.");
+
+    connection.release();
+  } catch (err) {
+    console.error("❌ Database connection error:", err);
+  }
+};
+
+connection();
+
+export default pool;
+</file>
+
+<file path="src/middleware/errorHandler.ts">
+import { Request, Response, NextFunction } from "express";
+import { sendResponse } from "../responses/responseHandler";
+
+export const errorHandler = (
+  err: any,
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void => {
+    const statusCode = err.statusCode || 500;
+    const message = err.message || "Internal server Error"
+
+    if (statusCode === 500) {
+        console.log("Unexpected error:", err);
+        sendResponse(res, statusCode, message)
+        return;
+    }
+
+
+    console.log(message)
+    sendResponse(res, statusCode, message)
+};
+</file>
+
+<file path="src/middleware/validationUser.ts">
+import { Request, Response, NextFunction } from "express";
+import { isString, toNumber } from "../utils/validators";
+import { UserField } from "../utils/types";
+
+const MIN_AGE = 16;
+const MAX_AGE = 120;
+
+const USER_ALLOWED_FIELDS = [UserField.NICKNAME, UserField.AGE, UserField.CITY];
+
+export const validatePostUser = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void => {
+  console.log("validate postUser called");
+
+  validateUserFields(req.body, USER_ALLOWED_FIELDS);
+  checkAge(req.body.age);
+
+  next();
+};
+
+export const validatePatchUser = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void => {
+  console.log("validate patchUser called");
+  const bodyData = req.body;
+  const id = req.params.id;
+
+  checkNumber(id, UserField.ID);
+  validateUserFields(bodyData, USER_ALLOWED_FIELDS);
+  checkAge(req.body.age);
+
+  next();
+};
+
+export const validateDeleteUser = (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): void => {
+  console.log("validate deleteUser called");
+  const id = req.params.id;
+  checkNumber(id, UserField.ID);
+  console.log(id);
+
+  next();
+};
+
+function checkString(value: unknown, field: string): void {
+  const isStringValid: boolean = isString(value);
+  if (!isStringValid) {
+    const err: any = new Error(
+      `Bad request: ${field} is not a string or is empty`,
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+function checkNumber(value: unknown, field: string): void {
+  const isNumbeValid: boolean = !isNaN(toNumber(value));
+
+  if (!isNumbeValid) {
+    const err: any = new Error(
+      `Bad request: ${field} is not a valid positive integer`,
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+function checkAge(value: number): void {
+  const age = toNumber(value);
+
+  if (age < MIN_AGE || age > MAX_AGE) {
+    const err: any = new Error(
+      `Bad request: Age must be between ${MIN_AGE} and ${MAX_AGE}`,
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+function validateUserFields(
+  bodyData: Record<string, unknown>,
+  allowedFields: string[],
+): void {
+  if (
+    !bodyData ||
+    typeof bodyData !== "object" ||
+    Object.keys(bodyData).length === 0
+  ) {
+    const err: any = new Error("Bad request: Request body is missing or empty");
+    err.statusCode = 400;
+    throw err;
+  }
+  
+  const keys = Object.keys(bodyData);
+
+  for (const property of keys) {
+    if (!allowedFields.includes(property)) {
+      const err: any = new Error(`Bad request: Invalid field '${property}'`);
+      err.statusCode = 400;
+      throw err;
+    }
+
+    if (property === UserField.NICKNAME) {
+      checkString(bodyData[property], UserField.NICKNAME);
+    }
+    if (property === UserField.AGE) {
+      checkNumber(bodyData[property], UserField.AGE);
+    }
+    if (property === UserField.CITY) {
+      checkString(bodyData[property], UserField.CITY);
+    }
+  }
+}
+</file>
+
+<file path="src/repositories/baseRepository.ts">
+import dbPool from "../database/connection";
+
+export abstract class BaseRepository<T> {
+  protected abstract tableName: string;
+
+  async findById(id: number): Promise<T | undefined> {
+    const sql = `SELECT * FROM ${this.tableName} WHERE id = ?`;
+    const [rows]: any = await dbPool.execute(sql, [id]);
+
+    return rows[0] as T | undefined;
+  }
+
+  async findByField(field: string, value: any): Promise<T | undefined> {
+    const sql = `SELECT * FROM ${this.tableName} WHERE ${field} = ?`;
+    const [rows]: any = await dbPool.execute(sql, [value]);
+    return rows[0] as T | undefined;
+  }
+
+  async getAll(): Promise<T[]> {
+    const sql = `SELECT * FROM ${this.tableName}`;
+    const [rows]: any = await dbPool.execute(sql);
+    return rows as T[];
+  }
+}
+</file>
+
+<file path="src/repositories/userRepository.ts">
+import dbPool from "../database/connection";
+import { BaseRepository } from "./baseRepository";
+import { User } from "../utils/types";
+
+class UserRepository extends BaseRepository<User> {
+  protected tableName = "users";
+
+  async post(
+    nickname: string,
+    age: number,
+    city: string,
+  ): Promise<number | boolean> {
+    const sql = `INSERT INTO ${this.tableName} (nickname, age, city) VALUES (?, ?, ?)`;
+    const [result]: any = await dbPool.execute(sql, [nickname, age, city]);
+
+    if (result.affectedRows === 0) return false;
+    return result.insertId;
+  }
+
+  async patch(
+    id: any,
+    fieldsToUpdate: Array<string>,
+    values: Array<any>
+  ): Promise<boolean> {
+    const sql = `UPDATE users SET ${fieldsToUpdate.join(", ")} WHERE id = ?`;
+    const [result]: any = await dbPool.execute(sql, [
+      ...values,
+      id,
+    ]);    
+
+
+    return result.affectedRows > 0;
+  }
+
+  async delete(id: number): Promise<number | boolean> {
+    const sql = `DELETE FROM ${this.tableName}  WHERE id = ?`;
+    const [result]: any = await dbPool.execute(sql, [id]);
+
+    if (result.affectedRows === 0) return false;
+    return true;
+  }
+}
+
+export const userRepository = new UserRepository();
+</file>
+
+<file path="src/responses/responseHandler.ts">
+import { Request, Response } from "express";
+
+export const sendResponse = (
+  res: Response,
+  statusCode: number,
+  message: string,
+  data?: unknown,
+) => {
+  return res.status(statusCode).json({
+    status: statusCode < 400 ? "success" : "error",
+    statusCode: statusCode,
+    message,
+    ...(data !== undefined && { data }),
+  });
+};
+</file>
+
+<file path="src/test/unitTest.test.ts">
+import { assert, expect } from "chai";
+import sinon from "sinon";
+import { Request } from "express";
+import app from "../appTest";
+import request from "supertest";
+
+import { userRepository } from "../repositories/userRepository";
+// import dbPool from "../database/connection";
+
+describe.only("Various Test", () => {
+  // let postStub: sinon.SinonStub;
+  // let patchStub: sinon.SinonStub;
+  // let deleteStub: sinon.SinonStub;
+
+  // beforeEach(() => {
+  //   postStub = sinon.stub(userRepository, "post").resolves(true);
+  //   patchStub = sinon.stub(userRepository, "patch").resolves(true);
+  //   deleteStub = sinon.stub(userRepository, "delete").resolves(true);
+  // });
+
+  // afterEach(() => {
+  //   patchStub.restore();
+  //   postStub.restore();
+  //   deleteStub.restore();
+  // });
+
+  // it("Should post user without hitting the DB", async () => {
+  //   const response = await request(app).post(`/users/`).send({
+  //     nickname: "OmniMan",
+  //     age: 16,
+  //     city: "New York",
+  //   });
+
+  //   expect(response.statusCode).to.equal(201);
+  //   expect(postStub.calledOnce).to.be.true;
+  // });
+
+  // it("Should patch user without hitting the DB", async () => {
+  //   const response = await request(app).patch(`/users/4`).send({
+  //     nickname: "Hello",
+  //     age: 102,
+  //     city: "New York",
+  //   });
+
+  //   expect(response.statusCode).to.equal(200);
+  //   expect(patchStub.calledOnce).to.be.true;
+  // });
+
+  // it("should delete and user", async () => {
+  //   const response = await request(app).delete(`/users/4`);
+  //   expect(response.statusCode).to.equal(200);
+  //   expect(deleteStub.calledOnce).to.be.true;
+  // });
+
+  let postStub: sinon.SinonStub;
+  let findByFieldStub: sinon.SinonStub;
+
+  beforeEach(() => {
+    findByFieldStub = sinon.stub(userRepository, "findByField").resolves(undefined);
+    postStub = sinon.stub(userRepository, "post").resolves(true);
+  });
+
+  afterEach(() => {
+    findByFieldStub.restore();
+    postStub.restore();
+  });
+
+  it("post test", async () => {
+    const response = await request(app).post(`/users/`).send({
+      nickname: "OmaniMan",
+      age: 16,
+      city: "New York",
+    });
+
+    expect(response.statusCode).to.equal(201);
+  });
+});
+</file>
+
+<file path="src/test/userController.test.ts">
+import { expect } from "chai";
+// import sinon from "sinon";
+// import { Request } from "express";
+import app from "../appTest";
+import request from "supertest";
+
+describe("UserController", () => {
+  let userId: number;
+
+  afterEach(async () => {
+    const response = await request(app).get("/users");
+    console.log("\n--- Actual DB state ---");
+    console.table(response.body.data);
+  });
+
+  //Create
+  it("Should create a new user", async () => {
+    const response = await request(app).post("/users").send({
+      nickname: "Hollow Knight",
+      age: 67,
+      city: "IndieCross",
+    });
+
+    userId = response.body.data;
+
+    console.log("Test begun with user Id:", userId);
+    expect(response.statusCode).to.be.equal(201);
+  });
+
+  //Update
+  it("Should update an user", async () => {
+    const response = await request(app).patch(`/users/${userId}`).send({
+      nickname: "James",
+      age: 28,
+      city: "New York",
+    });
+
+    expect(response.statusCode).to.be.equal(200);
+  });
+
+  //Delete
+  it("Should delete an user", async () => {
+    if (!userId) {
+      expect.fail("There is no user to delete");
+    }
+
+    const response = await request(app).delete(`/users/${userId}`);
+
+    console.log(response.statusCode);
+    expect(response.statusCode).to.be.equal(200);
+  });
+});
+</file>
+
+<file path="src/utils/types.ts">
+import { RowDataPacket } from "mysql2";
+
+export interface User extends RowDataPacket{
+    id: number,
+    nickname: string,
+    age: number,
+    city: string
+}
+
+export enum UserField {
+  ID = "id",
+  NICKNAME = "nickname",
+  CITY = "city",
+  AGE = "age",
+}
+
+// export type Id = typeof NaN | number;
+export type Id = number;
+</file>
+
+<file path="src/utils/validators.ts">
+import { Id } from "./types";
+
+
+export const isString = (value: unknown): value is string => {
+  return typeof value === "string" && value.trim().length > 0;
+};
+
+
+export const toNumber = (value: unknown): number => {
+  const parseNumber = Number(value)
+
+  if (!Number.isInteger(parseNumber) || parseNumber <= 0){
+    return NaN;
+  }
+
+  return parseNumber
+};
+</file>
+
+<file path="src/app.ts">
+import express from 'express';
+import router from './routes';
+import { errorHandler } from './middleware/errorHandler';
+
+const app = express();
+app.use(express.json());
+
+app.use(router);
+
+app.use(errorHandler)
+
+//listen to port
+app.listen(3000, () => {
+  console.log(`Server listening on port 3000`);
+});
+</file>
+
+<file path="src/appTest.ts">
+import express from 'express';
+import router from './routes';
+import { errorHandler } from './middleware/errorHandler';
+
+const app = express();
+app.use(express.json());
+
+app.use(router);
+
+app.use(errorHandler)
+
+export default app;
+</file>
+
+<file path="src/routes.ts">
+import { Router } from "express";
+//Controller
+import { getUsers, postUser, patchUser, deleteUser } from "./controllers/userController";
+//Middleware
+import { validatePostUser, validatePatchUser, validateDeleteUser } from "./middleware/validationUser"
+
+const router = Router();
+
+//User
+router.get("/users", getUsers);
+router.post("/users", validatePostUser, postUser);
+router.patch("/users/:id", validatePatchUser, patchUser);
+router.delete("/users/:id", validateDeleteUser, deleteUser);
+
+
+
+export default router;
+
+// router.get("/users", getUsers);
+// router.post("/users", postUser);
+// router.patch("/users/:id", patchUser);
+// router.delete("/users/:id", deleteUser);
+</file>
+
+<file path="mySQL.sql">
+CREATE DATABASE tongue_node;
+
+USE toungue_node;
+
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nickname VARCHAR(50) NOT NULL UNIQUE,
+    age INT NOT NULL,
+    city VARCHAR(50) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS posts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    title VARCHAR(50) not null,
+    inserted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+        CONSTRAINT fk_post_user FOREIGN KEY (user_id) 
+        REFERENCES users (id) ON DELETE CASCADE 
+);
+
+CREATE TABLE IF NOT EXISTS interactions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    post_id INT NOT NULL,
+    type ENUM('like', 'comment') NOT NULL,
+    text VARCHAR(255) NULL,
+    inserted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_interaction_user FOREIGN KEY (user_id) 
+        REFERENCES users (id) ON DELETE CASCADE, 
+    CONSTRAINT fk_interaction_post FOREIGN KEY (post_id)
+        REFERENCES posts (id) ON DELETE CASCADE
+);
+
+
+
+INSERT INTO users (nickname, age, city) VALUES
+('Arnold', 78, 'Thal'),       
+('John Cena', 49, 'West Newbury'),
+('Jackie Chan', 72, 'Hong Kong'),
+('OmniMan', 2000, 'Viltrum'),
+('Chris Bumstead', 30, 'Canada');
+</file>
+
+<file path="package.json">
+{
+  "name": "tongue-node",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/app.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "dev": "nodemon --watch src --ext ts --exec ts-node src/app.ts",
+    "test": "mocha -r ts-node/register -r dotenv/config \"src/**/*.test.ts\"",
+    "test:watch": "mocha -r ts-node/register -r dotenv/config \"src/**/*.test.ts\" --watch --watch-files src/**/*.ts\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Keeeenny/tongue-node.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Keeeenny/tongue-node/issues"
+  },
+  "homepage": "https://github.com/Keeeenny/tongue-node#readme",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "mysql2": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/express": "^5.0.6",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^25.9.1",
+    "@types/sinon": "^21.0.1",
+    "@types/supertest": "^7.2.0",
+    "chai": "^6.2.2",
+    "mocha": "^11.7.6",
+    "nodemon": "^3.1.14",
+    "sinon": "^22.0.0",
+    "supertest": "^7.2.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
+</file>
+
+<file path="tsconfig.json">
+{
+  // Visit https://aka.ms/tsconfig to read more about this file
+  "compilerOptions": {
+    // File Layout
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    // Environment Settings
+    // See also https://aka.ms/tsconfig/module
+    "module": "commonjs",
+    "target": "es2022",
+    "esModuleInterop": true,
+    "types": ["node", "mocha"],
+    // For nodejs:
+    // "lib": ["esnext"],
+    // "types": ["node"],
+    // and npm install -D @types/node
+
+    // Other Outputs
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    // Stricter Typechecking Options
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+
+    // Style Options
+    // "noImplicitReturns": true,
+    // "noImplicitOverride": true,
+    // "noUnusedLocals": true,
+    // "noUnusedParameters": true,
+    // "noFallthroughCasesInSwitch": true,
+    // "noPropertyAccessFromIndexSignature": true,
+
+    // Recommended Options
+    "strict": true,
+    // "jsx": "react-jsx",
+    "verbatimModuleSyntax": false,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true
+  }
+}
+</file>
+
+<file path=".gitignore">
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Directory for instrumented libs generated by jscoverage/JSCover
+lib-cov
+
+# Coverage directory used by tools like istanbul
+coverage
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Grunt intermediate storage (https://gruntjs.com/creating-plugins#storing-task-files)
+.grunt
+
+# Bower dependency directory (https://bower.io/)
+bower_components
+
+# node-waf configuration
+.lock-wscript
+
+# Compiled binary addons (https://nodejs.org/api/addons.html)
+build/Release
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Snowpack dependency directory (https://snowpack.dev/)
+web_modules/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variable files
+.env
+.env.*
+!.env.example
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# Next.js build output
+.next
+out
+
+# Nuxt.js build / generate output
+.nuxt
+dist
+.output
+
+# Gatsby files
+.cache/
+# Comment in the public line in if your project uses Gatsby and not Next.js
+# https://nextjs.org/blog/next-9-1#public-directory-support
+# public
+
+# vuepress build output
+.vuepress/dist
+
+# vuepress v2.x temp directory
+.temp
+
+# Sveltekit cache directory
+.svelte-kit/
+
+# vitepress build output
+**/.vitepress/dist
+
+# vitepress cache directory
+**/.vitepress/cache
+
+# Docusaurus cache and generated files
+.docusaurus
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# Firebase cache directory
+.firebase/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# pnpm
+.pnpm-store
+
+# yarn v3
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Vite files
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+.vite/
+</file>
+
+</files>

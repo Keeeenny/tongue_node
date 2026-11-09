@@ -1,0 +1,45 @@
+{
+  "name": "tongue-node",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/app.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "dev": "nodemon --watch src --ext ts --exec ts-node src/app.ts",
+    "test": "mocha -r ts-node/register -r dotenv/config \"src/**/*.test.ts\"",
+    "test:watch": "mocha -r ts-node/register -r dotenv/config \"src/**/*.test.ts\" --watch --watch-files src/**/*.ts\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Keeeenny/tongue-node.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Keeeenny/tongue-node/issues"
+  },
+  "homepage": "https://github.com/Keeeenny/tongue-node#readme",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "mysql2": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/express": "^5.0.6",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^25.9.1",
+    "@types/sinon": "^21.0.1",
+    "@types/supertest": "^7.2.0",
+    "chai": "^6.2.2",
+    "mocha": "^11.7.6",
+    "nodemon": "^3.1.14",
+    "sinon": "^22.0.0",
+    "supertest": "^7.2.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.3"
+  }
+}
